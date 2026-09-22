@@ -10,6 +10,13 @@ Aerometer is an SIH 2026 (Problem Statement 26056) prototype for a high-frequenc
 - Provides price trajectory, booking-pressure, route-temperature, and normalized-ledger views.
 - Requires a first-party, time-limited CAPTCHA challenge before the fare endpoint can be used.
 
+## Interface highlights
+
+- Airport selectors display clear labels such as `DEL (Delhi)` and `BOM (Mumbai)` while preserving IATA codes for API requests.
+- The travel date uses a native calendar control and advance purchase accepts any whole number from 1 to 90 days.
+- The route workbench uses accessible keyboard focus states and responsive controls.
+- A custom airplane favicon is served through Next.js at `app/icon.svg`.
+
 ## Data strategy
 
 1. **Use approved data paths.** Each collector is configured through an approved API, data partnership, or explicit robots-and-terms permission. It deliberately does not bypass CAPTCHAs, evade anti-bot systems, or rotate IP addresses.
@@ -21,7 +28,7 @@ Aerometer is an SIH 2026 (Problem Statement 26056) prototype for a high-frequenc
 ## Architecture
 
 - **Frontend:** Next.js 16, React 19, Tailwind CSS. The root route presents an original lightweight CSS depth scene; no third-party 3D assets or heavy WebGL dependencies are required.
-- **API:** FastAPI. `backend/main_secure.py` provides CAPTCHA, quote retrieval, source status, index metadata, and health checks.
+- **API:** FastAPI. `backend/main_secure.py` provides CAPTCHA, quote retrieval, source status, index metadata, and health checks. It runs on port `8001` so it remains isolated from any existing local service on port `8000`.
 - **Approved feed contract:** Set `AIRFARE_FEED_<SOURCE>` to an approved JSON endpoint. It receives `origin`, `destination`, `date`, and `advance_days` query parameters and returns either an array of quote records or `{ "data": [...] }`.
 
 ## Local setup
@@ -45,10 +52,10 @@ Open `http://localhost:3000`.
 ```powershell
 .\.venv\Scripts\Activate.ps1
 pip install -r backend\requirements-live.txt
-python -m uvicorn main_secure:app --app-dir backend --host 127.0.0.1 --port 8000
+python -m uvicorn main_secure:app --app-dir backend --host 127.0.0.1 --port 8001
 ```
 
-Open `http://127.0.0.1:8000/docs` for interactive API documentation.
+Open `http://127.0.0.1:8001/docs` for interactive API documentation.
 
 ### Configure an approved source feed
 
