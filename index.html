@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aerometer — India Airfare Price Index</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark">A</span><span>Aerometer</span></a>
+      <nav>
+        <a class="active" href="#dashboard">Overview</a>
+        <a href="#compare">Fare explorer</a>
+        <a href="#index">APIx index</a>
+        <a href="#sources">Source health</a>
+      </nav>
+      <div class="sidebar-footer"><span class="live-dot"></span> Collection engine online<br><small>Ethical mode · robots-aware</small></div>
+    </aside>
+    <main>
+      <header>
+        <div><p class="eyebrow">MoSPI · SIH 2026 / 26056</p><h1>India’s airfare pulse, in real time.</h1></div>
+        <div class="as-of"><span class="live-dot"></span> Updated 11:42 IST<br><small>20 Sep 2026</small></div>
+      </header>
+
+      <section class="search-panel" id="compare">
+        <div class="search-grid">
+          <label>Origin <select id="origin"><option value="DEL">New Delhi (DEL)</option><option value="BOM">Mumbai (BOM)</option><option value="BLR">Bengaluru (BLR)</option><option value="MAA">Chennai (MAA)</option></select></label>
+          <button class="swap" id="swap" aria-label="Swap airports">⇄</button>
+          <label>Destination <select id="destination"><option value="BOM">Mumbai (BOM)</option><option value="DEL">New Delhi (DEL)</option><option value="BLR">Bengaluru (BLR)</option><option value="HYD">Hyderabad (HYD)</option></select></label>
+          <label>Departure <input id="date" type="date" /></label>
+          <label>Window <select id="window"><option value="1">T+1 day</option><option value="7" selected>T+7 days</option><option value="15">T+15 days</option><option value="30">T+30 days</option><option value="45">T+45 days</option></select></label>
+          <button class="primary" id="search">Compare fares <span>→</span></button>
+        </div>
+        <p class="hint">Searches use approved adapters where available. This prototype otherwise demonstrates the normalized collection pipeline with labelled sample quotes.</p>
+      </section>
+
+      <section class="stats" id="dashboard">
+        <article><p>India APIx</p><strong id="apix">128.4</strong><span class="up">+2.8% <small>vs last week</small></span></article>
+        <article><p>Median fare</p><strong id="median">₹6,842</strong><span class="up">+4.1% <small>vs last week</small></span></article>
+        <article><p>Quotes today</p><strong>18,492</strong><span><small>12 monitored sources</small></span></article>
+        <article><p>Coverage</p><strong>24</strong><span><small>city-pairs · 5 windows</small></span></article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="card trend-card"><div class="card-head"><div><h2>Airfare Price Index</h2><p>Weighted Jevons index · base: Jan 2026 = 100</p></div><button class="ghost">Last 30 days⌄</button></div><div class="chart" id="chart" aria-label="Airfare price index trend chart"></div><div class="chart-legend"><span><i class="line"></i> APIx</span><span><i class="line muted"></i> 30-day baseline</span></div></article>
+        <article class="card route-card"><div class="card-head"><div><h2>Route heatmap</h2><p>Median fare change, 7-day window</p></div></div><div id="heatmap" class="heatmap"></div><div class="heat-legend"><span>cooler</span><i></i><i></i><i></i><i></i><span>hotter</span></div></article>
+      </section>
+
+      <section class="card quotes-card" id="index">
+        <div class="card-head"><div><h2 id="results-title">Live fare comparison</h2><p id="results-subtitle">DEL → BOM · departure 27 Sep · T+7</p></div><div class="actions"><button class="ghost" id="download">Export CSV</button><button class="primary small">Open API docs</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Source</th><th>Flight</th><th>Depart / arrive</th><th>Fare class</th><th>Base fare</th><th>Taxes & fees</th><th>Total fare</th><th>Captured</th></tr></thead><tbody id="quotes"></tbody></table></div>
+      </section>
+
+      <section class="bottom-grid" id="sources">
+        <article class="card"><div class="card-head"><div><h2>Source health</h2><p>Compliance-first collection status</p></div><a href="#">View all</a></div><div id="sources-list"></div></article>
+        <article class="card methodology"><p class="eyebrow">METHOD</p><h2>Built for statistical use.</h2><p>Each quote is timestamped, normalized, de-duplicated, and quality-scored. Index inputs preserve route, carrier, lead-time, fare components and source provenance.</p><a href="#">Read methodology →</a></article>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
