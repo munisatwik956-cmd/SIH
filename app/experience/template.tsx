@@ -15,10 +15,33 @@ export default function Template({ children }: { children: React.ReactNode }) {
       if (travel && !travel.querySelector('[data-aero-date]')) { const old = travel.querySelector('select'); if (old) { const input = document.createElement('input'); input.type = 'date'; input.value = '2026-09-27'; input.min = '2026-09-22'; input.dataset.aeroControl = 'true'; input.dataset.aeroDate = 'true'; window.__aeroDate = input.value; input.addEventListener('change', () => window.__aeroDate = input.value); old.replaceWith(input); } }
       if (advance && !advance.querySelector('[data-aero-advance]')) { const old = advance.querySelector('select'); if (old) { const input = document.createElement('input'); input.type = 'number'; input.min = '1'; input.max = '90'; input.step = '1'; input.value = old.value || '7'; input.placeholder = 'Days'; input.dataset.aeroControl = 'true'; input.dataset.aeroAdvance = 'true'; window.__aeroAdvance = input.value; input.addEventListener('input', () => { const value = Math.max(1, Math.min(90, Number(input.value) || 1)); window.__aeroAdvance = String(value); }); old.replaceWith(input); } }
     };
-    const run = () => { apply(); new MutationObserver(() => apply()).observe(document.body, { childList: true, subtree: true }); };
+    const run = () => {
+      /* Delay DOM mutations until well after React hydration completes. */
+      setTimeout(() => {
+        apply();
+        new MutationObserver(() => apply()).observe(document.body, { childList: true, subtree: true });
+      }, 800);
+    };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else setTimeout(run, 0);
     const originalFetch = window.fetch.bind(window);
-    window.fetch = (input, init) => { const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input); const secureUrl = url.replace('http://127.0.0.1:8000/', 'http://127.0.0.1:8001/'); let nextInit = init; if (secureUrl.includes('/v1/quotes') && init && typeof init.body === 'string') { try { const body = JSON.parse(init.body); body.departure_date = window.__aeroDate || body.departure_date; body.advance_days = Number(window.__aeroAdvance || body.advance_days); nextInit = { ...init, body: JSON.stringify(body) }; } catch {} } return originalFetch(secureUrl, nextInit); };
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      let nextInit = init;
+      if (url.includes('/v1/quotes') && init && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body);
+          body.departure_date = window.__aeroDate || body.departure_date;
+          body.advance_days = Number(window.__aeroAdvance || body.advance_days);
+          nextInit = { ...init, body: JSON.stringify(body) };
+        } catch {}
+      }
+      return originalFetch(url, nextInit);
+    };
   })();`;
-  return <><script dangerouslySetInnerHTML={{ __html: bridge }} />{children}</>
+  return (
+    <>
+      <script dangerouslySetInnerHTML={{ __html: bridge }} />
+      {children}
+    </>
+  );
 }

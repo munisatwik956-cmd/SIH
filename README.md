@@ -52,10 +52,10 @@ Open `http://localhost:3000`.
 ```powershell
 .\.venv\Scripts\Activate.ps1
 pip install -r backend\requirements-live.txt
-python -m uvicorn main_secure:app --app-dir backend --host 127.0.0.1 --port 8001
+python -m uvicorn main_secure:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8001/docs` for interactive API documentation.
+Open `http://127.0.0.1:8000/docs` for interactive API documentation.
 
 ### Configure an approved source feed
 
