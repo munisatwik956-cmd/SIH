@@ -157,8 +157,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    setQuotes(randomQuotes())
-    refreshDashboard()
+    search()
   }, [])
 
   async function search() {

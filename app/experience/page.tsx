@@ -167,8 +167,7 @@ export default function Experience() {
   }
 
   useEffect(() => {
-    setQuotes(randomQuotes())
-    refreshDashboard()
+    fares()
   }, [])
 
   async function unlock() {
@@ -194,16 +193,17 @@ export default function Experience() {
   }
 
   async function fares() {
-    /* If verified, try live backend first */
-    if (ticket) {
-      try {
-        const r = await fetch('http://127.0.0.1:8000/v1/quotes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-human-ticket': ticket },
-          body: JSON.stringify({ origin: o, destination: d, departure_date: '2026-09-27', advance_days: Number(w) }),
-        })
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (ticket) headers['x-human-ticket'] = ticket
+      const r = await fetch('http://127.0.0.1:8000/v1/quotes', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ origin: o, destination: d, departure_date: '2026-09-27', advance_days: Number(w) }),
+      })
+      if (r.ok) {
         const j = await r.json()
-        if (r.ok) {
+        if (j.data && j.data.length > 0) {
           setQuotes(j.data)
           refreshDashboard()
           setNote(j.mode === 'approved-live'
@@ -211,15 +211,13 @@ export default function Experience() {
             : 'Randomised demo data — add a SERPAPI_KEY to .env for live fares.')
           return
         }
-      } catch { /* fall through to random */ }
-    }
+      }
+    } catch { /* backend unreachable */ }
 
-    /* No ticket or backend unreachable → generate fresh random data */
+    /* Backend unreachable → generate fresh random data */
     setQuotes(randomQuotes(o, d, Number(w)))
     refreshDashboard()
-    setNote(ticket
-      ? 'Backend unreachable — refreshed with demo data.'
-      : 'Demo data refreshed. Verify access for live fares.')
+    setNote('Backend unreachable — refreshed with demo data.')
   }
 
   /* Axis helpers for the trajectory chart */

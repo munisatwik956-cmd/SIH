@@ -1,13 +1,7 @@
-"""Compliance-first live collection gateway for SIH 26056.
-
-Live data source: Google Flights via SerpApi.
-When no SERPAPI_KEY is configured, returns randomised demo quotes.
-It intentionally never attempts CAPTCHA solving, browser fingerprint evasion,
-IP rotation, or collection from a source that has not opted in.
-"""
 from __future__ import annotations
 import json, os, random, urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from urllib.request import Request, urlopen
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +15,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+def get_serpapi_key() -> str:
+    key = os.getenv("SERPAPI_KEY", "")
+    if key:
+        return key
+    for env_path in (Path(__file__).parent / ".env", Path(__file__).parent.parent / ".env"):
+        if env_path.is_file():
+            try:
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("SERPAPI_KEY=") and not line.startswith("#"):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val:
+                            return val
+            except Exception:
+                pass
+    return ""
 
 # ── Indian domestic airline metadata ─────────────────────────────────
 AIRLINES = [
@@ -102,33 +111,50 @@ def random_demo(s: Search):
 
 def fetch_google_flights(s: Search):
     """Call SerpApi Google Flights and convert the response to Aerometer format."""
-    if not SERPAPI_KEY:
+    api_key = get_serpapi_key()
+    if not api_key:
+        print("[SerpApi] No API key found in environment or .env file!", flush=True)
         return []
+
+    # Calculate outbound date based on advance_days relative to current date
+    days_ahead = max(1, s.advance_days)
+    outbound = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
     params = urllib.parse.urlencode({
         "engine": "google_flights",
         "departure_id": s.origin,
         "arrival_id": s.destination,
-        "outbound_date": s.departure_date,
+        "outbound_date": outbound,
         "currency": "INR",
         "hl": "en",
         "type": "2",
-        "api_key": SERPAPI_KEY,
+        "api_key": api_key,
     })
     url = f"https://serpapi.com/search.json?{params}"
+    print(f"[SerpApi] Requesting {s.origin}->{s.destination} on {outbound} via SerpApi...", flush=True)
+
     req = Request(url, headers={
         "Accept": "application/json",
         "User-Agent": "Aerometer-APIx/0.4 (approved-data-feed)",
     })
 
-    with urlopen(req, timeout=20) as resp:
-        data = json.loads(resp.read().decode())
+    try:
+        with urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"[SerpApi] HTTP request failed: {e}", flush=True)
+        raise RuntimeError(f"SerpApi network error: {e}")
+
+    if "error" in data:
+        err_msg = data["error"]
+        print(f"[SerpApi] API returned error: {err_msg}", flush=True)
+        raise RuntimeError(f"SerpApi error: {err_msg}")
 
     now = datetime.now(timezone.utc).isoformat()
     demand = "high" if s.advance_days <= 3 else ("moderate" if s.advance_days <= 14 else "normal")
     quotes = []
 
-    for group_key in ("best_flights", "other_flights"):
+    for group_key in ("best_flights", "other_flights", "flights"):
         for flight_group in data.get(group_key, []):
             price = flight_group.get("price")
             if not price or not flight_group.get("flights"):
@@ -149,7 +175,7 @@ def fetch_google_flights(s: Search):
             quotes.append({
                 "source": airline, "carrier": carrier,
                 "origin": s.origin, "destination": s.destination,
-                "departure_date": s.departure_date, "advance_days": s.advance_days,
+                "departure_date": outbound, "advance_days": s.advance_days,
                 "demand_level": demand,
                 "fare_class": leg.get("travel_class", "Economy"),
                 "base_fare_inr": base, "taxes_fees_inr": taxes,
@@ -158,6 +184,7 @@ def fetch_google_flights(s: Search):
                 "flight_number": flight_number,
             })
 
+    print(f"[SerpApi] Successfully fetched {len(quotes)} live quotes!", flush=True)
     return quotes
 
 
@@ -171,10 +198,12 @@ def quotes(search: Search):
     live = []
     failures = []
 
-    if SERPAPI_KEY:
+    api_key = get_serpapi_key()
+    if api_key:
         try:
             live = fetch_google_flights(search)
         except Exception as e:
+            print(f"[Quotes] Failed to fetch live quotes: {e}", flush=True)
             failures.append({"source": "Google Flights (SerpApi)", "error": str(e)[:120]})
 
     return {
@@ -188,11 +217,12 @@ def quotes(search: Search):
 
 @app.get("/v1/sources")
 def sources():
-    api_status = "configured" if SERPAPI_KEY else "awaiting-api-key"
+    has_key = bool(get_serpapi_key())
+    api_status = "configured" if has_key else "awaiting-api-key"
     return {"sources": [
         {"name": "Google Flights (SerpApi)", "status": api_status,
          "collection_policy": "Approved aggregator API"},
-        *[{"name": a[0], "status": "tracked-via-google-flights" if SERPAPI_KEY else "awaiting-api-key"}
+        *[{"name": a[0], "status": "tracked-via-google-flights" if has_key else "awaiting-api-key"}
           for a in AIRLINES],
     ]}
 
@@ -210,9 +240,11 @@ def index():
 
 @app.get("/health")
 def health():
+    has_key = bool(get_serpapi_key())
     return {
         "status": "ok",
         "collector": "ready",
-        "live_source": "Google Flights (SerpApi)" if SERPAPI_KEY else "randomised-demo",
+        "live_source": "Google Flights (SerpApi)" if has_key else "randomised-demo",
         "policy": "No CAPTCHA bypass, IP rotation, or anti-bot evasion",
     }
+
