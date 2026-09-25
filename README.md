@@ -16,20 +16,23 @@ Aerometer is an SIH 2026 (Problem Statement 26056) prototype for a high-frequenc
 - The travel date uses a native calendar control and advance purchase accepts any whole number from 1 to 90 days.
 - The route workbench uses accessible keyboard focus states and responsive controls.
 - A custom airplane favicon is served through Next.js at `app/icon.svg`.
+- **Natural trajectory charts** use a 30-point random walk with momentum and mean-reversion, rendered with Catmull-Rom → Bezier smoothing, Y-axis value labels, X-axis date labels, gradient area fill, and endpoint dots.
+- All dashboard widgets (metrics, charts, bars, heatmaps) regenerate with **fresh random data on every page load** and every button click.
 
 ## Data strategy
 
-1. **Use approved data paths.** Each collector is configured through an approved API, data partnership, or explicit robots-and-terms permission. It deliberately does not bypass CAPTCHAs, evade anti-bot systems, or rotate IP addresses.
-2. **Normalize at ingestion.** Store source, carrier, route, travel date, booking window, fare class, base fare, taxes/fees, total fare, collection timestamp, availability and a quality flag.
-3. **Quality control.** Deduplicate itinerary/fare-class captures, validate fare-component sums, flag outliers, track sold-out/cancelled results, and retain source provenance.
-4. **Index construction.** Compute route and booking-window price relatives, then aggregate with DGCA passenger-traffic weights. Version every basket, weight, and index run for reproducibility.
-5. **Transparency.** If no approved source feed is configured, the UI explicitly labels fallback quotes as illustrative rather than live.
+1. **Live data via Google Flights API (SerpApi).** Set `SERPAPI_KEY` in `.env` to enable live fare collection through the Google Flights search engine.
+2. **Automatic random fallback.** When `SERPAPI_KEY` is empty or not set, the backend returns randomised demo quotes. The frontend also generates fresh random data client-side when the backend is unreachable.
+3. **Normalize at ingestion.** Store source, carrier, route, travel date, booking window, fare class, base fare, taxes/fees, total fare, collection timestamp, availability and a quality flag.
+4. **Quality control.** Deduplicate itinerary/fare-class captures, validate fare-component sums, flag outliers, track sold-out/cancelled results, and retain source provenance.
+5. **Index construction.** Compute route and booking-window price relatives, then aggregate with DGCA passenger-traffic weights. Version every basket, weight, and index run for reproducibility.
+6. **Transparency.** If no approved source feed is configured, the UI explicitly labels fallback quotes as illustrative rather than live.
 
 ## Architecture
 
-- **Frontend:** Next.js 16, React 19, Tailwind CSS. The root route presents an original lightweight CSS depth scene; no third-party 3D assets or heavy WebGL dependencies are required.
-- **API:** FastAPI. `backend/main_secure.py` provides CAPTCHA, quote retrieval, source status, index metadata, and health checks. It runs on port `8001` so it remains isolated from any existing local service on port `8000`.
-- **Approved feed contract:** Set `AIRFARE_FEED_<SOURCE>` to an approved JSON endpoint. It receives `origin`, `destination`, `date`, and `advance_days` query parameters and returns either an array of quote records or `{ "data": [...] }`.
+- **Frontend:** Next.js 16, React 19, CSS Modules (experience page) + Tailwind CSS (landing page). The root route presents an original lightweight CSS depth scene; no third-party 3D assets or heavy WebGL dependencies are required.
+- **API:** FastAPI. `backend/main_secure.py` provides CAPTCHA, quote retrieval, source status, index metadata, and health checks. It runs on port `8000`.
+- **Live data feed:** Set `SERPAPI_KEY` in `.env` to your [SerpApi](https://serpapi.com/manage-api-key) key. The backend calls the Google Flights engine to fetch real fare data.
 
 ## Local setup
 
@@ -57,14 +60,26 @@ python -m uvicorn main_secure:app --app-dir backend --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/docs` for interactive API documentation.
 
-### Configure an approved source feed
+### Configure live data (optional)
 
-```powershell
-$env:AIRFARE_FEED_INDIGO = "https://approved-provider.example/indigo/quotes"
-$env:AIRFARE_FEED_AIR_INDIA = "https://approved-provider.example/air-india/quotes"
+1. Get a free API key at [https://serpapi.com/manage-api-key](https://serpapi.com/manage-api-key)
+2. Add it to `.env`:
+
+```env
+SERPAPI_KEY=your_key_here
 ```
 
-Restart the API after setting feed variables. `GET /v1/sources` shows which feeds are configured.
+3. Restart the backend. The `/v1/quotes` endpoint will now return live Google Flights data.
+
+> **No API key?** No problem. The system automatically falls back to randomised demo data that refreshes on every page load and every button click.
+
+## Demo mode behavior
+
+When no `SERPAPI_KEY` is configured:
+
+- **Page load:** All dashboard widgets (trajectory chart, booking pressure, route temperature, fare ledger) initialize with fresh random data.
+- **"Reveal fares" / "Refresh live fares" button:** Generates new random quotes AND refreshes all dashboard widgets (trajectory chart, demand bars, heatmap, metrics) — no CAPTCHA required.
+- **CAPTCHA verification:** Still available. Once verified, the system tries the backend first and falls back to random if the backend returns an error.
 
 ## CAPTCHA flow
 
@@ -74,3 +89,19 @@ Restart the API after setting feed variables. `GET /v1/sources` shows which feed
 4. Fare requests include that ticket in the `X-Human-Ticket` header.
 
 This is a first-party demo CAPTCHA for local development. In a production NSO deployment, add rate limits, persistent challenge storage, observability, CSRF protection, and a managed CAPTCHA provider where appropriate.
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `SERPAPI_KEY` | No | [SerpApi](https://serpapi.com) key for Google Flights data. Leave empty for random demo data. |
+
+## Chart technology
+
+The trajectory charts use **pure SVG** with no charting libraries:
+
+- **Data generation:** 30-point random walk with momentum (`0.85` decay), mean-reversion toward 120, and clamping to 100–140 range.
+- **Curve smoothing:** Catmull-Rom to cubic Bezier conversion with `0.3` tension for natural, organic curves.
+- **Y-axis:** Adaptive gridlines with value labels (2/5/10 step based on data range).
+- **X-axis:** Date labels spanning the last 30 days.
+- **Visual polish:** Gradient area fill, axis lines, and endpoint dot indicator.

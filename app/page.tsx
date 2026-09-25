@@ -35,15 +35,54 @@ function randomQuotes(origin = 'DEL', dest = 'BOM', adv = 7): Quote[] {
   })
 }
 
-function randomTrend(): number[] {
-  const pts: number[] = []
-  let v = 104 + Math.random() * 6
-  for (let i = 0; i < 16; i++) {
-    pts.push(Math.round(v * 10) / 10)
-    v += (Math.random() * 4 - 1)
-    v = Math.max(102, Math.min(135, v))
+/* ── Natural trajectory using random walk with momentum ────────── */
+function generateTrend(): { values: number[]; path: string; areaPath: string; min: number; max: number } {
+  const n = 30
+  const values: number[] = []
+  let val = 104 + Math.random() * 8
+  let momentum = 0.3 + Math.random() * 0.4
+
+  for (let i = 0; i < n; i++) {
+    values.push(Math.round(val * 10) / 10)
+    const noise = (Math.random() - 0.45) * 2.5
+    const reversion = (120 - val) * 0.02
+    momentum = momentum * 0.85 + noise * 0.15 + reversion
+    momentum = Math.max(-1.5, Math.min(1.5, momentum))
+    val += momentum + noise * 0.6
+    val = Math.max(100, Math.min(140, val))
   }
-  return pts
+
+  const min = Math.floor(Math.min(...values) - 2)
+  const max = Math.ceil(Math.max(...values) + 2)
+  const range = max - min || 1
+
+  // Chart area: leave room for axes
+  const cL = 30, cR = 98, cT = 5, cB = 88
+  const cW = cR - cL, cH = cB - cT
+
+  const pts = values.map((v, i) => ({
+    x: cL + (i / (n - 1)) * cW,
+    y: cB - ((v - min) / range) * cH,
+  }))
+
+  // Catmull-Rom → Bezier smooth curve
+  let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[Math.min(pts.length - 1, i + 2)]
+    const t = 0.3
+    const cp1x = p1.x + (p2.x - p0.x) * t
+    const cp1y = p1.y + (p2.y - p0.y) * t
+    const cp2x = p2.x - (p3.x - p1.x) * t
+    const cp2y = p2.y - (p3.y - p1.y) * t
+    d += ` C${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
+  }
+
+  const areaPath = `${d} L${cR} ${cB} L${cL} ${cB} Z`
+
+  return { values, path: d, areaPath, min, max }
 }
 
 function randomHeatmap(): [string, string][] {
@@ -64,25 +103,20 @@ function randomDemandBars(): [string, number][] {
   ]
 }
 
+function getDateLabels(): string[] {
+  const labels: string[] = []
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const now = new Date()
+  for (const offset of [0, 9, 19, 29]) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - (29 - offset))
+    labels.push(`${d.getDate()} ${months[d.getMonth()]}`)
+  }
+  return labels
+}
+
 const money = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
-
-function Line({ data }: { data: number[] }) {
-  if (!data.length) return null
-  const pts = data.map((v, i) => `${i * 100 / (data.length - 1)},${100 - (v - 100) * 3.15}`).join(' ')
-  return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-48 w-full overflow-visible">
-      <defs>
-        <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-          <stop stopColor="#55b4ff" stopOpacity=".48" />
-          <stop offset="1" stopColor="#55b4ff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={`${pts} 100,100 0,100`} fill="url(#g)" />
-      <polyline points={pts} fill="none" stroke="#82c8ff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  )
-}
 
 export default function Home() {
   const [origin, setOrigin] = useState('DEL')
@@ -92,7 +126,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
 
   /* Randomised dashboard data */
-  const [trend, setTrend] = useState<number[]>([])
+  const [trendData, setTrendData] = useState<{ values: number[]; path: string; areaPath: string; min: number; max: number } | null>(null)
   const [apixVal, setApixVal] = useState('—')
   const [apixPct, setApixPct] = useState('')
   const [demandBars, setDemandBars] = useState<[string, number][]>([])
@@ -100,17 +134,19 @@ export default function Home() {
   const [basePct, setBasePct] = useState(72)
   const [taxPct, setTaxPct] = useState(18)
   const [feePct, setFeePct] = useState(10)
+  const [dateLabels] = useState(getDateLabels)
 
   const total = useMemo(() => quotes.map(q => q.total_fare_inr).sort((a, b) => a - b), [quotes])
   const median = total[Math.floor(total.length / 2)] || 0
 
-  useEffect(() => {
-    setQuotes(randomQuotes())
-    const t = randomTrend()
-    setTrend(t)
-    const latest = t[t.length - 1]
-    setApixVal(String(latest))
-    setApixPct(`+${(1 + Math.random() * 5).toFixed(1)}%`)
+  function refreshDashboard() {
+    const t = generateTrend()
+    setTrendData(t)
+    const latest = t.values[t.values.length - 1]
+    const weekAgo = t.values[Math.max(0, t.values.length - 8)]
+    const weekDelta = ((latest - weekAgo) / weekAgo * 100)
+    setApixVal(latest.toFixed(1))
+    setApixPct(`${weekDelta >= 0 ? '+' : ''}${weekDelta.toFixed(1)}%`)
     setDemandBars(randomDemandBars())
     setHeatmap(randomHeatmap())
     const bp = 68 + Math.floor(Math.random() * 10)
@@ -118,6 +154,11 @@ export default function Home() {
     setBasePct(bp)
     setTaxPct(tp)
     setFeePct(100 - bp - tp)
+  }
+
+  useEffect(() => {
+    setQuotes(randomQuotes())
+    refreshDashboard()
   }, [])
 
   async function search() {
@@ -129,8 +170,17 @@ export default function Home() {
         body: JSON.stringify({ origin, destination, departure_date: '2026-09-27', advance_days: advance }),
       })
       if (r.ok) { const j = await r.json(); setQuotes(j.data) }
-    } finally { setLoading(false) }
+      else { setQuotes(randomQuotes(origin, destination, advance)) }
+    } catch {
+      /* Backend unreachable → generate fresh random quotes */
+      setQuotes(randomQuotes(origin, destination, advance))
+    }
+    refreshDashboard()
+    setLoading(false)
   }
+
+  /* Axis helpers */
+  const cL = 30, cR = 98, cT = 5, cB = 88
 
   return (
     <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-8 lg:px-12">
@@ -167,7 +217,7 @@ export default function Home() {
         <section className="my-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             ['APIx', apixVal, apixPct],
-            ['Median fare', median ? money(median) : '—', median ? `+${(1 + Math.random() * 5).toFixed(1)}%` : ''],
+            ['Median fare', median ? money(median) : '—', median ? 'normalized quotes' : ''],
             ['Demand pulse', demandBars.length ? (demandBars[0][1] > 85 ? 'High' : 'Moderate') : '—', 'festival uplift'],
             ['Coverage', heatmap.length ? `${heatmap.length * 3} routes` : '—', `${8 + Math.floor(Math.random() * 5)} sources`],
           ].map(x => (
@@ -181,7 +231,7 @@ export default function Home() {
 
         {/* Charts row */}
         <section className="grid gap-5 lg:grid-cols-5">
-          {/* Price index chart */}
+          {/* Price index chart — natural curve with axes */}
           <article className="liquid rounded-3xl p-5 lg:col-span-3">
             <div className="flex justify-between">
               <div>
@@ -190,10 +240,59 @@ export default function Home() {
               </div>
               <b className="text-sky-300">{apixVal}</b>
             </div>
-            <Line data={trend} />
-            <div className="flex justify-between text-[10px] text-slate-400">
-              <span>22 Aug</span><span>05 Sep</span><span>20 Sep</span>
-            </div>
+            {trendData && (
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-48 w-full" style={{ overflow: 'visible' }}>
+                <defs>
+                  <linearGradient id="trendGrad" x1="0" x2="0" y1="0" y2="1">
+                    <stop stopColor="#55b4ff" stopOpacity=".38" />
+                    <stop offset="1" stopColor="#55b4ff" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+
+                {/* Y-axis gridlines and labels */}
+                {(() => {
+                  const range = trendData.max - trendData.min
+                  const step = range <= 10 ? 2 : range <= 20 ? 5 : 10
+                  const ticks: number[] = []
+                  for (let v = Math.ceil(trendData.min / step) * step; v <= trendData.max; v += step) ticks.push(v)
+                  const cH = cB - cT
+                  return ticks.map(v => {
+                    const y = cB - ((v - trendData.min) / (trendData.max - trendData.min)) * cH
+                    return (
+                      <g key={v}>
+                        <line x1={cL} y1={y} x2={cR} y2={y} stroke="#55b4ff" strokeOpacity="0.12" strokeWidth="0.15" vectorEffect="non-scaling-stroke" />
+                        <text x={cL - 1.5} y={y + 1} textAnchor="end" fill="#94a3b8" fontSize="2.5" fontFamily="monospace">{v}</text>
+                      </g>
+                    )
+                  })
+                })()}
+
+                {/* X-axis date labels */}
+                {dateLabels.map((label, i) => {
+                  const x = cL + (i / (dateLabels.length - 1)) * (cR - cL)
+                  return (
+                    <text key={label} x={x} y={cB + 4.5} textAnchor="middle" fill="#94a3b8" fontSize="2.2" fontFamily="monospace">{label}</text>
+                  )
+                })}
+
+                {/* Axis lines */}
+                <line x1={cL} y1={cT} x2={cL} y2={cB} stroke="#55b4ff" strokeOpacity="0.15" strokeWidth="0.15" vectorEffect="non-scaling-stroke" />
+                <line x1={cL} y1={cB} x2={cR} y2={cB} stroke="#55b4ff" strokeOpacity="0.15" strokeWidth="0.15" vectorEffect="non-scaling-stroke" />
+
+                {/* Area fill */}
+                <path d={trendData.areaPath} fill="url(#trendGrad)" />
+
+                {/* Main curve */}
+                <path d={trendData.path} fill="none" stroke="#82c8ff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* Endpoint dot */}
+                {(() => {
+                  const lastV = trendData.values[trendData.values.length - 1]
+                  const lastY = cB - ((lastV - trendData.min) / (trendData.max - trendData.min)) * (cB - cT)
+                  return <circle cx={cR} cy={lastY} r="1" fill="#82c8ff" />
+                })()}
+              </svg>
+            )}
           </article>
 
           {/* Fare composition (randomised split) */}
